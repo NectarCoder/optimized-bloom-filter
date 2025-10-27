@@ -48,6 +48,27 @@ def load_unique_tokens() -> list[str]:
     return sorted(list(words))
 
 
+def count_raw_tokens() -> int:
+    """Count raw tokens in the CSV without any preprocessing.
+
+    This counts all whitespace-separated tokens found in the
+    `tokenized_text` column across all rows (including duplicates).
+    """
+    csv_file = DATASET_DIR / "brown.csv"
+
+    if not csv_file.exists():
+        raise FileNotFoundError(f"Dataset file not found: {csv_file}")
+
+    total = 0
+    with open(csv_file, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            tokens = row.get("tokenized_text", "").split()
+            total += len(tokens)
+
+    return total
+
+
 def build_split(words: Optional[list[str]] = None) -> Tuple[BloomFilter, list[str], list[str]]:
     """Create deterministic 80/20 split and build the bloom filter.
 
@@ -152,6 +173,10 @@ def run_all() -> None:
     print("=" * 60)
     print()
     
+    # Raw token count (no preprocessing) and full unique token list size
+    raw_count = count_raw_tokens()
+    print(f"Raw CSV tokens (no preprocessing): {raw_count}")
+
     # Load full unique token list and print its size before splitting
     full_words = load_unique_tokens()
     print(f"Full dataset unique tokens: {len(full_words)}")
