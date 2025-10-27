@@ -1,48 +1,32 @@
-# Brown Corpus Dataset for Bloom Filter Implementation
+# Optimized Bloom Filter
 
-## Dataset Overview
+This repository contains a small, focused Bloom filter implementation in Python plus a deterministic test suite that evaluates membership and empirical false-positive rates using the Brown corpus dataset.
 
-The Brown Corpus is a renowned dataset in computational linguistics and natural language processing. Key characteristics include:
+## Key points
+- Bloom filter implemented in `standard_bf/bloom_filter.py` using MurmurHash3 (`mmh3`) and xxHash64 (`xxhash`).
+- Hashing uses the Kirsch–Mitzenmacher double-hashing technique to derive k=7 hash values from two base hashes.
+- Deterministic 80/20 train/held-out split of the Brown corpus unique tokens is used for reproducible evaluation.
+- The consolidated test suite is `standard_bf/test_suite.py`. It sizes the filter to 10× the training-set size by default (per your request).
 
-- Contains approximately 1 million words
-- Consists of 500 English text samples (~2,000 words each)
-- Organized into 15 categories (press, fiction, religion, government, science, etc.)
-- Categories are aggregated into 5 major labels
-- Well-balanced and diverse dataset
+Quick start (Windows PowerShell)
+1. Create and activate a virtual environment and install dependencies (scripts are in `setup_venv_scripts/`):
 
-## Project Purpose
-
-This dataset is being used to implement and test Bloom filter data structure, chosen for its:
-- Manageable size for computation
-- Real-world text data
-- Suitability for word-based operations
-- Ideal for testing membership queries and false positive rates
-
-## Data Preprocessing Steps
-
-1. Load the corpus using NLTK
-2. Text normalization:
-   - Convert all words to lowercase
-   - Remove punctuation and non-alphanumeric characters
-3. Dataset preparation:
-   - Create insertion set (I) from unique words
-   - Generate query set (Q) with random/unseen terms
-
-## Performance Analysis
-
-The preprocessed Brown Corpus enables testing of:
-- Membership testing accuracy
-- False positive characteristics
-- Space consumption metrics
-- Time-to-complete measurements
-
-This dataset provides a practical benchmark for evaluating Bloom filter performance in real-world language processing applications like dictionary searches and content screening.
-
-## Repository Structure
+```bash
+cd setup_venv_scripts
+./setup_venv.ps1
+# For Linux: ./setup_venv.sh
+# For macOS: ./setup_venv.zsh
 ```
-.
-├── brown/           # Raw corpus files
-├── brown.csv        # Processed data
-├── cats.csv         # Category information
-└── brown-meta.json  # Metadata
+
+2. Run the consolidated test suite:
+
+```bash
+# From project root
+python -m standard_bf.test_suite
 ```
+
+What the test suite does
+- Loads normalized unique tokens from `dataset/brown.csv`.
+- Sorts tokens deterministically, splits 80% train / 20% test.
+- Builds a Bloom filter with size = 10 × len(train) and k = 7.
+- Verifies all training items are present, measures empirical false-positive rate on the held-out test set, and reports simple collision statistics and memory usage.
