@@ -4,3 +4,8 @@ venv/
 
 # Python Cache
 __pycache__/
+
+# Other
+.DS_Store
+*.log
+.ini
