@@ -17,7 +17,7 @@
 #endif
 
 #define NUM_HASHES 7u
-#define DATASET_SIZE 100000u
+#define DATASET_SIZE 10000000u
 #define TARGET_QUERIES 1000000u
 
 typedef bool (*contains_fn)(const void *filter, const char *item);
