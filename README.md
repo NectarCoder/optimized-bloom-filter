@@ -33,3 +33,24 @@ cd setup_venv_scripts
 # From project root
 python -m test_suite
 ```
+
+## C implementation (UNIX)
+If you want to build and run the C benchmark on a UNIX-like system, you need a POSIX shell, `gcc`, and `make` installed.
+
+Build and run using the Makefile:
+```bash
+cd c_impl
+make
+./bloom_bench.out
+```
+
+Or compile in a single command (optimized):
+```bash
+gcc -O3 test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c hash_utils.c -o bloom_bench.out
+./bloom_bench.out
+```
+
+Convenience targets:
+- `make run`  — build and run `bloom_bench.out`
+- `make clean` — remove the built binary and object files
+
