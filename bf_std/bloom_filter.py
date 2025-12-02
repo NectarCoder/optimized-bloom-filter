@@ -1,6 +1,6 @@
-"""Minimal Bloom filter implementation using double hashing.
+"""Standard Bloom filter implementation using double hashing.
 
-Uses two independent hash families (MurmurHash3 via mmh3 and xxHash64)
+Uses two independent hash families (MurmurHash3 via mmh3 and xxHash64 via xxhash)
 combined with the Kirsch-Mitzenmacher optimization to derive k hash functions.
 """
 from __future__ import annotations

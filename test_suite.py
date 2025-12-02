@@ -16,9 +16,11 @@ from __future__ import annotations
 import csv
 import time
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Any, Type
+import array
 
 from bf_std.bloom_filter import BloomFilter
+from bf_light.lightweight_bloom_filter import LightweightBloomFilter
 
 
 NUM_HASHES = 7
@@ -93,7 +95,7 @@ def build_split(words: Optional[list[str]] = None) -> Tuple[BloomFilter, list[st
     return bloom, train, test
 
 
-def test_membership(bloom: BloomFilter, train: list[str]) -> None:
+def test_membership(bloom: Any, train: list[str]) -> None:
     """Verify all training items are present in the filter."""
     print("TEST A: Membership on training set")
     missing = [w for w in train if w not in bloom]
@@ -104,7 +106,7 @@ def test_membership(bloom: BloomFilter, train: list[str]) -> None:
     print()
 
 
-def test_false_positive_on_heldout(bloom: BloomFilter, train: list[str], test: list[str]) -> None:
+def test_false_positive_on_heldout(bloom: Any, train: list[str], test: list[str]) -> None:
     """Measure empirical false positive rate on held-out test set."""
     print("TEST B: False positive rate on held-out real words")
     test_filtered = [w for w in test if w not in train]
@@ -122,7 +124,7 @@ def test_false_positive_on_heldout(bloom: BloomFilter, train: list[str], test: l
     print()
 
 
-def test_collision_analysis(bloom: BloomFilter, train: list[str], test: list[str]) -> None:
+def test_collision_analysis(bloom: Any, train: list[str], test: list[str]) -> None:
     """Analyze collision rate using simple word modifications."""
     print("TEST C: Collision analysis with simple modifications of held-out words")
     sample = test[:500]
@@ -152,10 +154,23 @@ def test_collision_analysis(bloom: BloomFilter, train: list[str], test: list[str
     print()
 
 
-def show_properties(bloom: BloomFilter, train: list[str]) -> None:
+def show_properties(bloom: Any, train: list[str]) -> None:
     """Display filter memory and configuration properties."""
     print("TEST D: Filter properties")
-    bytes_len = len(bloom.bit_array)
+    # Compute byte-length of the underlying bit array for both standard
+    # (bytearray) and the lightweight (array('Q')) implementations.
+    bit_arr = bloom.bit_array
+    if isinstance(bit_arr, (bytearray, bytes)):
+        bytes_len = len(bit_arr)
+    elif isinstance(bit_arr, array.array):
+        # array('Q') stores 64-bit words => 8 bytes per entry
+        bytes_len = len(bit_arr) * (array.array('Q').itemsize)
+    else:
+        # Fallback: attempt to compute length directly
+        try:
+            bytes_len = len(bit_arr)
+        except Exception:
+            bytes_len = 0
     mb = bytes_len / (1024 * 1024)
     
     print(f"  Filter size (bits): {bloom.size}")
@@ -166,21 +181,26 @@ def show_properties(bloom: BloomFilter, train: list[str]) -> None:
     print(f"  Bytes per word: {bytes_len / len(train):.4f}")
     print()
 
-def test_performance(bloom: BloomFilter, train: list[str], test: list[str]) -> None:
+def test_performance(bloom: Any, train: list[str], test: list[str]) -> dict:
     """Measure insertion and query throughput (Ops/Sec)."""
     print("TEST E: Performance Benchmarking")
     
     print("  Benchmarking Insertions...")
-    bench_filter = BloomFilter(bloom.size, bloom.num_hashes)
+    # Instantiate a fresh filter of same concrete type and config
+    bloom_cls: Type[Any] = type(bloom)
+    bench_filter = bloom_cls(bloom.size, bloom.num_hashes)
     
     start_time = time.perf_counter()
     for word in train:
         bench_filter.add(word)
     end_time = time.perf_counter()
     
-    total_time = end_time - start_time
-    ops_per_sec = len(train) / total_time
-    print(f"    - Inserted {len(train)} items in {total_time:.4f} sec")
+    insert_time = end_time - start_time
+    if insert_time <= 0:
+        ops_per_sec = float('inf')
+    else:
+        ops_per_sec = len(train) / insert_time
+    print(f"    - Inserted {len(train)} items in {insert_time:.4f} sec")
     print(f"    - Insertion Throughput: {ops_per_sec:,.0f} ops/sec")
 
     print("  Benchmarking Queries...")
@@ -195,16 +215,68 @@ def test_performance(bloom: BloomFilter, train: list[str], test: list[str]) -> N
         _ = word in bench_filter
     end_time = time.perf_counter()
     
-    total_time = end_time - start_time
-    ops_per_sec = len(large_test_set) / total_time
-    print(f"    - Performed {len(large_test_set)} queries in {total_time:.4f} sec")
-    print(f"    - Query Throughput: {ops_per_sec:,.0f} ops/sec")
+    query_time = end_time - start_time
+    if query_time <= 0:
+        query_ops_per_sec = float('inf')
+    else:
+        query_ops_per_sec = len(large_test_set) / query_time
+    print(f"    - Performed {len(large_test_set)} queries in {query_time:.4f} sec")
+    print(f"    - Query Throughput: {query_ops_per_sec:,.0f} ops/sec")
+    print()
+
+    metrics = {
+        "insert_count": len(train),
+        "insert_time": insert_time if insert_time > 0 else 0,
+        "insert_ops_per_sec": ops_per_sec,
+        "query_count": len(large_test_set),
+        "query_time": query_time if query_time > 0 else 0,
+        "query_ops_per_sec": query_ops_per_sec,
+    }
+
+    return metrics
+
+
+def compare_performance(std_metrics: dict, light_metrics: dict) -> None:
+    """Print a compact side-by-side comparison of performance metrics."""
+    def fmt(val, nm=''):
+        if val is None:
+            return 'N/A'
+        if isinstance(val, float):
+            if val == float('inf'):
+                return 'inf'
+            if abs(val) >= 1000:
+                return f"{val:,.0f}"
+            return f"{val:,.2f}"
+        return str(val)
+
+    def pct_change(a, b):
+        if a is None or a == 0:
+            return None
+        return (b - a) / a * 100
+
+    print(f"{'Metric':<36}{'Standard':>18}{'Lightweight':>18}{'Diff (%)':>14}")
+    print('-' * 86)
+
+    rows = [
+        ("Insertion Throughput (ops/sec)", std_metrics.get('insert_ops_per_sec'), light_metrics.get('insert_ops_per_sec')),
+        ("Insertion Time (s)", std_metrics.get('insert_time'), light_metrics.get('insert_time')),
+        ("Query Throughput (ops/sec)", std_metrics.get('query_ops_per_sec'), light_metrics.get('query_ops_per_sec')),
+        ("Query Time (s)", std_metrics.get('query_time'), light_metrics.get('query_time')),
+        ("Insert Count", std_metrics.get('insert_count'), light_metrics.get('insert_count')),
+        ("Query Count", std_metrics.get('query_count'), light_metrics.get('query_count')),
+    ]
+
+    for name, std_val, light_val in rows:
+        diff = pct_change(std_val, light_val)
+        diff_str = f"{diff:+.2f}%" if diff is not None else 'N/A'
+        print(f"{name:<36}{fmt(std_val):>18}{fmt(light_val):>18}{diff_str:>14}")
+    print()
     print()
 
 def run_all() -> None:
     """Run all tests."""
     print("=" * 60)
-    print("Running Bloom Filter Test Suite (80/20 split)")
+    print("Running STANDARD Bloom Filter Test Suite (80/20 split)")
     print("=" * 60)
     print()
     
@@ -216,13 +288,35 @@ def run_all() -> None:
     full_words = load_unique_tokens()
     print(f"Full dataset unique tokens: {len(full_words)}")
 
+    # Build and test the standard Bloom Filter
     bloom, train, test = build_split(full_words)
     
     test_membership(bloom, train)
     test_false_positive_on_heldout(bloom, train, test)
     test_collision_analysis(bloom, train, test)
     show_properties(bloom, train)
-    test_performance(bloom, train, test)
+    std_metrics = test_performance(bloom, train, test)
+    print()
+    print("=" * 60)
+    print("Running LIGHTWEIGHT Bloom Filter Test Suite (80/20 split)")
+    print("=" * 60)
+    print()
+
+    # Build the lightweight filter using the same deterministic split
+    filter_size = max(1, len(train) * 10)
+    light = LightweightBloomFilter(size=filter_size, num_hashes=NUM_HASHES)
+    light.update(train)
+
+    test_membership(light, train)
+    test_false_positive_on_heldout(light, train, test)
+    test_collision_analysis(light, train, test)
+    show_properties(light, train)
+    light_metrics = test_performance(light, train, test)
+
+    print("=" * 60)
+    print("COMPARISON: Performance Summary")
+    print("=" * 60)
+    compare_performance(std_metrics, light_metrics)
     
     print("=" * 60)
     print("Test suite completed successfully!")
