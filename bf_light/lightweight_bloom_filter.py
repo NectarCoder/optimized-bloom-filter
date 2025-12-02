@@ -1,104 +1,120 @@
-"""
-Lightweight Bloom Filter implementation (Blocked / Word-Oriented).
+"""Cache-friendly Bloom filter optimized for low-power devices.
 
-Implements the 'One hash variant and word oriented bit array' strategy
-outlined in the mid-term report. This reduces memory accesses (cache misses)
-to 1 per operation by fitting all k bits into a single 64-bit word.
+This implementation follows the "blocked" Bloom filter approach described in the
+project notes: a single 64-bit hash locates both the machine word (block) and
+the bit offsets to touch. All `k` bits for an element live inside one 64-bit
+word which dramatically improves cache locality and reduces the number of
+memory fetches per operation.
+
+Key design choices:
+* **Single hash** via xxHash64. The upper/lower halves of the 64-bit digest are
+  re-used (Kirsch-Mitzenmacher style) so we only pay for one hash call.
+* **Power-of-two word array** so block selection is just bit masking instead of
+  costly modulo operations – an important optimization for MCUs without fast
+  hardware division.
+* **Word-oriented storage** using ``array('Q')`` (unsigned 64-bit) to align with
+  CPU word writes/reads.
 """
 
 from __future__ import annotations
 
-import array
-from typing import Iterable
+from array import array
+from typing import Iterable, Iterator, Tuple
 
 import xxhash
 
 
+def _next_power_of_two(value: int) -> int:
+	"""Return the next power of two >= value."""
+
+	if value <= 1:
+		return 1
+	return 1 << (value - 1).bit_length()
+
+
 class LightweightBloomFilter:
-    """
-    Blocked Bloom filter backed by an array of 64-bit unsigned integers.
+	"""Blocked Bloom filter with single-hash, word-oriented bitset."""
 
-    Strategy:
-    1. Hash item once (64-bit).
-    2. Use upper bits to select a 'Block' (Word).
-    3. Use lower bits to derive k bit positions *within* that Word.
-    """
+	__slots__ = (
+		"size",
+		"num_hashes",
+		"seed",
+		"_word_count",
+		"_word_mask",
+		"_block_bits",
+		"_bit_array",
+	)
 
-    def __init__(self, size: int, num_hashes: int, seed: int = 0) -> None:
-        """Initialize the Lightweight Bloom filter.
+	_SM64_GAMMA = 0x9E3779B97F4A7C15
+	_SM64_M1 = 0xBF58476D1CE4E5B9
+	_SM64_M2 = 0x94D049BB133111EB
+	_MASK64 = (1 << 64) - 1
 
-        Args:
-            size: Target number of bits (will be rounded up to nearest multiple of 64).
-            num_hashes: Number of bits to set per item (k).
-            seed: Seed for xxHash64.
-        """
-        if size <= 0:
-            raise ValueError("size must be positive")
-        if num_hashes <= 0:
-            raise ValueError("num_hashes must be positive")
+	def __init__(self, size: int, num_hashes: int, *, seed: int = 0) -> None:
+		if size <= 0:
+			raise ValueError("size must be positive")
+		if num_hashes <= 0:
+			raise ValueError("num_hashes must be positive")
 
-        self.num_hashes = num_hashes
-        self.seed = seed
+		requested_words = max(1, (size + 63) // 64)
+		self._word_count = _next_power_of_two(requested_words)
+		self.size = self._word_count * 64  # report actual bit capacity
+		self.num_hashes = num_hashes
+		self.seed = seed
+		self._word_mask = self._word_count - 1
+		self._block_bits = (self._word_count.bit_length() - 1) if self._word_count > 1 else 0
+		self._bit_array = array("Q", [0] * self._word_count)
 
-        # Calculate number of 64-bit words needed
-        # We use 'Q' for unsigned long long (8 bytes / 64 bits)
-        self.num_words = (size + 63) // 64
-        self.size = self.num_words * 64
-        self._bit_array = array.array("Q", [0] * self.num_words)
+	def add(self, item: str) -> None:
+		"""Insert ``item`` using a single hashed block."""
 
-    def add(self, item: str) -> None:
-        """Insert ``item`` into the filter using a single memory word access."""
-        # 1. Single Hash Calculation
-        h = xxhash.xxh64(item, seed=self.seed).intdigest()
+		block_index, state = self._block_index_and_state(item)
+		word = self._bit_array[block_index]
+		for bit_pos in self._bit_positions(state):
+			word |= 1 << bit_pos
+		self._bit_array[block_index] = word
 
-        # 2. Determine Word (Block) Index
-        # We map the hash to a specific word index
-        word_index = h % self.num_words
+	def update(self, items: Iterable[str]) -> None:
+		"""Insert each item from ``items``."""
 
-        # 3. Create Mask for k bits inside this word
-        # We use the hash 'h' as a seed for a pseudo-random sequence
-        # to pick k bits within the 64-bit range.
-        mask = 0
+		for item in items:
+			self.add(item)
 
-        # A lightweight linear congruential generator (LCG) derived from h
-        # to pick k positions.
-        # Constants: a=6364136223846793005, c=1442695040888963407 (Knuth's MMIX)
-        current_h = h
-        for _ in range(self.num_hashes):
-            # Transformation to pick a bit position 0-63
-            # We mix bits to ensure good spread within the word
-            current_h = (
-                current_h * 6364136223846793005 + 1442695040888963407
-            ) & 0xFFFFFFFFFFFFFFFF
-            bit_pos = current_h >> 58  # Take top 6 bits (0-63)
-            mask |= 1 << bit_pos
+	def __contains__(self, item: str) -> bool:
+		"""Return True if ``item`` may be present, False if definitely absent."""
 
-        # 4. Single Memory Write (Word Oriented)
-        self._bit_array[word_index] |= mask
+		block_index, state = self._block_index_and_state(item)
+		word = self._bit_array[block_index]
+		for bit_pos in self._bit_positions(state):
+			if not (word & (1 << bit_pos)):
+				return False
+		return True
 
-    def update(self, items: Iterable[str]) -> None:
-        """Insert all ``items`` into the filter."""
-        for item in items:
-            self.add(item)
+	def _block_index_and_state(self, item: str) -> Tuple[int, int]:
+		"""Return block index plus the 64-bit hash state."""
 
-    def __contains__(self, item: str) -> bool:
-        """Check if ``item`` is in the filter."""
-        h = xxhash.xxh64(item, seed=self.seed).intdigest()
-        word_index = h % self.num_words
+		data = item.encode("utf-8")
+		digest = xxhash.xxh64(data, seed=self.seed).intdigest()
+		if self._block_bits:
+			block_index = (digest >> (64 - self._block_bits)) & self._word_mask
+		else:
+			block_index = 0
+		return block_index, digest & self._MASK64
 
-        mask = 0
-        current_h = h
-        for _ in range(self.num_hashes):
-            current_h = (
-                current_h * 6364136223846793005 + 1442695040888963407
-            ) & 0xFFFFFFFFFFFFFFFF
-            bit_pos = current_h >> 58
-            mask |= 1 << bit_pos
+	def _bit_positions(self, state: int) -> Iterator[int]:
+		"""Yield deterministic bit positions inside a 64-bit block."""
 
-        # 5. Single Memory Read
-        return (self._bit_array[word_index] & mask) == mask
+		x = state & self._MASK64
+		for _ in range(self.num_hashes):
+			x = (x + self._SM64_GAMMA) & self._MASK64
+			z = x
+			z = (z ^ (z >> 30)) * self._SM64_M1 & self._MASK64
+			z = (z ^ (z >> 27)) * self._SM64_M2 & self._MASK64
+			z ^= z >> 31
+			yield z & 63
 
-    @property
-    def bit_array(self) -> array.array:
-        """Expose the underlying bit array."""
-        return self._bit_array
+	@property
+	def bit_array(self) -> array:
+		"""Expose the internal array('Q') for inspection/metrics."""
+
+		return self._bit_array

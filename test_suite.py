@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import csv
 import time
+import uuid
+
 from pathlib import Path
 from typing import Tuple, List, Optional, Any, Type
 import array
@@ -271,22 +273,30 @@ def compare_performance(std_metrics: dict, light_metrics: dict) -> None:
         diff_str = f"{diff:+.2f}%" if diff is not None else 'N/A'
         print(f"{name:<36}{fmt(std_val):>18}{fmt(light_val):>18}{diff_str:>14}")
     print()
-    print()
+
+
+def generate_synthetic_data(n: int = 1_000_000) -> list[str]:
+    """Generate n unique random strings."""
+    print(f"Generating {n} synthetic items...")
+    # UUIDs are virtually guaranteed to be unique
+    return [str(uuid.uuid4()) for _ in range(n)]
+
 
 def run_all() -> None:
     """Run all tests."""
+    
+    # Raw token count (no preprocessing) and full unique token list size
+    #raw_count = count_raw_tokens()
+    #print(f"Raw CSV tokens (no preprocessing): {raw_count}")
+
+    full_words = generate_synthetic_data(100_000)
+    #full_words = load_unique_tokens()
+    print(f"Full dataset unique tokens: {len(full_words)}")
+
     print("=" * 60)
     print("Running STANDARD Bloom Filter Test Suite (80/20 split)")
     print("=" * 60)
     print()
-    
-    # Raw token count (no preprocessing) and full unique token list size
-    raw_count = count_raw_tokens()
-    print(f"Raw CSV tokens (no preprocessing): {raw_count}")
-
-    # Load full unique token list and print its size before splitting
-    full_words = load_unique_tokens()
-    print(f"Full dataset unique tokens: {len(full_words)}")
 
     # Build and test the standard Bloom Filter
     bloom, train, test = build_split(full_words)
