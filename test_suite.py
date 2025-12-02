@@ -14,14 +14,15 @@ functions (Kirsch-Mitzenmacher double hashing).
 from __future__ import annotations
 
 import csv
+import time
 from pathlib import Path
 from typing import Tuple, List, Optional
 
-from .bloom_filter import BloomFilter
+from bf_std.bloom_filter import BloomFilter
 
 
 NUM_HASHES = 7
-DATASET_DIR = Path(__file__).parent.parent / "dataset"
+DATASET_DIR = Path(__file__).parent / "dataset"
 
 
 def load_unique_tokens() -> list[str]:
@@ -165,6 +166,40 @@ def show_properties(bloom: BloomFilter, train: list[str]) -> None:
     print(f"  Bytes per word: {bytes_len / len(train):.4f}")
     print()
 
+def test_performance(bloom: BloomFilter, train: list[str], test: list[str]) -> None:
+    """Measure insertion and query throughput (Ops/Sec)."""
+    print("TEST E: Performance Benchmarking")
+    
+    print("  Benchmarking Insertions...")
+    bench_filter = BloomFilter(bloom.size, bloom.num_hashes)
+    
+    start_time = time.perf_counter()
+    for word in train:
+        bench_filter.add(word)
+    end_time = time.perf_counter()
+    
+    total_time = end_time - start_time
+    ops_per_sec = len(train) / total_time
+    print(f"    - Inserted {len(train)} items in {total_time:.4f} sec")
+    print(f"    - Insertion Throughput: {ops_per_sec:,.0f} ops/sec")
+
+    print("  Benchmarking Queries...")
+    
+    target_ops = 1_000_000
+    repeats = (target_ops // len(test)) + 1
+    large_test_set = test * repeats
+    large_test_set = large_test_set[:target_ops]
+    
+    start_time = time.perf_counter()
+    for word in large_test_set:
+        _ = word in bench_filter
+    end_time = time.perf_counter()
+    
+    total_time = end_time - start_time
+    ops_per_sec = len(large_test_set) / total_time
+    print(f"    - Performed {len(large_test_set)} queries in {total_time:.4f} sec")
+    print(f"    - Query Throughput: {ops_per_sec:,.0f} ops/sec")
+    print()
 
 def run_all() -> None:
     """Run all tests."""
@@ -187,6 +222,7 @@ def run_all() -> None:
     test_false_positive_on_heldout(bloom, train, test)
     test_collision_analysis(bloom, train, test)
     show_properties(bloom, train)
+    test_performance(bloom, train, test)
     
     print("=" * 60)
     print("Test suite completed successfully!")
