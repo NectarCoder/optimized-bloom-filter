@@ -11,6 +11,7 @@ filter with the 80% training set, and runs four tests:
 Filter size is set to 10x the number of training items, and we use 7 hash
 functions (Kirsch-Mitzenmacher double hashing).
 """
+
 from __future__ import annotations
 
 import csv
@@ -31,15 +32,15 @@ DATASET_DIR = Path(__file__).parent / "dataset"
 
 def load_unique_tokens() -> list[str]:
     """Load unique tokens from brown.csv and normalize them.
-    
+
     Returns a sorted list of unique, normalized tokens.
     """
     words = set()
     csv_file = DATASET_DIR / "brown.csv"
-    
+
     if not csv_file.exists():
         raise FileNotFoundError(f"Dataset file not found: {csv_file}")
-    
+
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -49,7 +50,7 @@ def load_unique_tokens() -> list[str]:
                 normalized = token.lower()
                 if normalized and any(c.isalnum() for c in normalized):
                     words.add(normalized)
-    
+
     return sorted(list(words))
 
 
@@ -74,7 +75,9 @@ def count_raw_tokens() -> int:
     return total
 
 
-def build_split(words: Optional[list[str]] = None) -> Tuple[BloomFilter, list[str], list[str]]:
+def build_split(
+    words: Optional[list[str]] = None,
+) -> Tuple[BloomFilter, list[str], list[str]]:
     """Create deterministic 80/20 split and build the bloom filter.
 
     If `words` is provided it will be used instead of loading from disk.
@@ -108,18 +111,20 @@ def test_membership(bloom: Any, train: list[str]) -> None:
     print()
 
 
-def test_false_positive_on_heldout(bloom: Any, train: list[str], test: list[str]) -> None:
+def test_false_positive_on_heldout(
+    bloom: Any, train: list[str], test: list[str]
+) -> None:
     """Measure empirical false positive rate on held-out test set."""
     print("TEST B: False positive rate on held-out real words")
     test_filtered = [w for w in test if w not in train]
-    
+
     if not test_filtered:
         print("  No held-out words available for testing.")
         return
-    
+
     false_positives = sum(1 for w in test_filtered if w in bloom)
     fpr = false_positives / len(test_filtered)
-    
+
     print(f"  Held-out words: {len(test_filtered)}")
     print(f"  False positives: {false_positives}")
     print(f"  Empirical FPR: {fpr:.6f} ({fpr*100:.4f}%)")
@@ -131,7 +136,7 @@ def test_collision_analysis(bloom: Any, train: list[str], test: list[str]) -> No
     print("TEST C: Collision analysis with simple modifications of held-out words")
     sample = test[:500]
     modifications = []
-    
+
     for word in sample:
         modifications.append(word + "x")
         if len(word) > 1:
@@ -141,15 +146,17 @@ def test_collision_analysis(bloom: Any, train: list[str], test: list[str]) -> No
     # Remove any accidental actual words
     train_set = set(train)
     test_set = set(test)
-    modifications = [m for m in modifications if m not in train_set and m not in test_set]
-    
+    modifications = [
+        m for m in modifications if m not in train_set and m not in test_set
+    ]
+
     if not modifications:
         print("  No modifications available for testing.")
         return
-    
+
     false_positives = sum(1 for m in modifications if m in bloom)
     rate = false_positives / len(modifications)
-    
+
     print(f"  Variants tested: {len(modifications)}")
     print(f"  False positives from variants: {false_positives}")
     print(f"  Collision rate: {rate:.6f} ({rate*100:.4f}%)")
@@ -166,7 +173,7 @@ def show_properties(bloom: Any, train: list[str]) -> None:
         bytes_len = len(bit_arr)
     elif isinstance(bit_arr, array.array):
         # array('Q') stores 64-bit words => 8 bytes per entry
-        bytes_len = len(bit_arr) * (array.array('Q').itemsize)
+        bytes_len = len(bit_arr) * (array.array("Q").itemsize)
     else:
         # Fallback: attempt to compute length directly
         try:
@@ -174,7 +181,7 @@ def show_properties(bloom: Any, train: list[str]) -> None:
         except Exception:
             bytes_len = 0
     mb = bytes_len / (1024 * 1024)
-    
+
     print(f"  Filter size (bits): {bloom.size}")
     print(f"  Filter size (bytes): {bytes_len}")
     print(f"  Filter size (MB): {mb:.2f}")
@@ -183,43 +190,44 @@ def show_properties(bloom: Any, train: list[str]) -> None:
     print(f"  Bytes per word: {bytes_len / len(train):.4f}")
     print()
 
+
 def test_performance(bloom: Any, train: list[str], test: list[str]) -> dict:
     """Measure insertion and query throughput (Ops/Sec)."""
     print("TEST E: Performance Benchmarking")
-    
+
     print("  Benchmarking Insertions...")
     # Instantiate a fresh filter of same concrete type and config
     bloom_cls: Type[Any] = type(bloom)
     bench_filter = bloom_cls(bloom.size, bloom.num_hashes)
-    
+
     start_time = time.perf_counter()
     for word in train:
         bench_filter.add(word)
     end_time = time.perf_counter()
-    
+
     insert_time = end_time - start_time
     if insert_time <= 0:
-        ops_per_sec = float('inf')
+        ops_per_sec = float("inf")
     else:
         ops_per_sec = len(train) / insert_time
     print(f"    - Inserted {len(train)} items in {insert_time:.4f} sec")
     print(f"    - Insertion Throughput: {ops_per_sec:,.0f} ops/sec")
 
     print("  Benchmarking Queries...")
-    
+
     target_ops = 1_000_000
     repeats = (target_ops // len(test)) + 1
     large_test_set = test * repeats
     large_test_set = large_test_set[:target_ops]
-    
+
     start_time = time.perf_counter()
     for word in large_test_set:
         _ = word in bench_filter
     end_time = time.perf_counter()
-    
+
     query_time = end_time - start_time
     if query_time <= 0:
-        query_ops_per_sec = float('inf')
+        query_ops_per_sec = float("inf")
     else:
         query_ops_per_sec = len(large_test_set) / query_time
     print(f"    - Performed {len(large_test_set)} queries in {query_time:.4f} sec")
@@ -240,12 +248,13 @@ def test_performance(bloom: Any, train: list[str], test: list[str]) -> dict:
 
 def compare_performance(std_metrics: dict, light_metrics: dict) -> None:
     """Print a compact side-by-side comparison of performance metrics."""
-    def fmt(val, nm=''):
+
+    def fmt(val, nm=""):
         if val is None:
-            return 'N/A'
+            return "N/A"
         if isinstance(val, float):
-            if val == float('inf'):
-                return 'inf'
+            if val == float("inf"):
+                return "inf"
             if abs(val) >= 1000:
                 return f"{val:,.0f}"
             return f"{val:,.2f}"
@@ -257,20 +266,44 @@ def compare_performance(std_metrics: dict, light_metrics: dict) -> None:
         return (b - a) / a * 100
 
     print(f"{'Metric':<36}{'Standard':>18}{'Lightweight':>18}{'Diff (%)':>14}")
-    print('-' * 86)
+    print("-" * 86)
 
     rows = [
-        ("Insertion Throughput (ops/sec)", std_metrics.get('insert_ops_per_sec'), light_metrics.get('insert_ops_per_sec')),
-        ("Insertion Time (s)", std_metrics.get('insert_time'), light_metrics.get('insert_time')),
-        ("Query Throughput (ops/sec)", std_metrics.get('query_ops_per_sec'), light_metrics.get('query_ops_per_sec')),
-        ("Query Time (s)", std_metrics.get('query_time'), light_metrics.get('query_time')),
-        ("Insert Count", std_metrics.get('insert_count'), light_metrics.get('insert_count')),
-        ("Query Count", std_metrics.get('query_count'), light_metrics.get('query_count')),
+        (
+            "Insertion Throughput (ops/sec)",
+            std_metrics.get("insert_ops_per_sec"),
+            light_metrics.get("insert_ops_per_sec"),
+        ),
+        (
+            "Insertion Time (s)",
+            std_metrics.get("insert_time"),
+            light_metrics.get("insert_time"),
+        ),
+        (
+            "Query Throughput (ops/sec)",
+            std_metrics.get("query_ops_per_sec"),
+            light_metrics.get("query_ops_per_sec"),
+        ),
+        (
+            "Query Time (s)",
+            std_metrics.get("query_time"),
+            light_metrics.get("query_time"),
+        ),
+        (
+            "Insert Count",
+            std_metrics.get("insert_count"),
+            light_metrics.get("insert_count"),
+        ),
+        (
+            "Query Count",
+            std_metrics.get("query_count"),
+            light_metrics.get("query_count"),
+        ),
     ]
 
     for name, std_val, light_val in rows:
         diff = pct_change(std_val, light_val)
-        diff_str = f"{diff:+.2f}%" if diff is not None else 'N/A'
+        diff_str = f"{diff:+.2f}%" if diff is not None else "N/A"
         print(f"{name:<36}{fmt(std_val):>18}{fmt(light_val):>18}{diff_str:>14}")
     print()
 
@@ -284,13 +317,13 @@ def generate_synthetic_data(n: int = 1_000_000) -> list[str]:
 
 def run_all() -> None:
     """Run all tests."""
-    
+
     # Raw token count (no preprocessing) and full unique token list size
-    #raw_count = count_raw_tokens()
-    #print(f"Raw CSV tokens (no preprocessing): {raw_count}")
+    # raw_count = count_raw_tokens()
+    # print(f"Raw CSV tokens (no preprocessing): {raw_count}")
 
     full_words = generate_synthetic_data(100_000)
-    #full_words = load_unique_tokens()
+    # full_words = load_unique_tokens()
     print(f"Full dataset unique tokens: {len(full_words)}")
 
     print("=" * 60)
@@ -300,7 +333,7 @@ def run_all() -> None:
 
     # Build and test the standard Bloom Filter
     bloom, train, test = build_split(full_words)
-    
+
     test_membership(bloom, train)
     test_false_positive_on_heldout(bloom, train, test)
     test_collision_analysis(bloom, train, test)
@@ -327,7 +360,7 @@ def run_all() -> None:
     print("COMPARISON: Performance Summary")
     print("=" * 60)
     compare_performance(std_metrics, light_metrics)
-    
+
     print("=" * 60)
     print("Test suite completed successfully!")
     print("=" * 60)

@@ -3,6 +3,7 @@
 Uses two independent hash families (MurmurHash3 via mmh3 and xxHash64 via xxhash)
 combined with the Kirsch-Mitzenmacher optimization to derive k hash functions.
 """
+
 from __future__ import annotations
 
 from typing import Iterable, Iterator
@@ -14,15 +15,17 @@ import xxhash
 class BloomFilter:
     """Simple Bloom filter backed by a bytearray bitset."""
 
-    def __init__(self, size: int, num_hashes: int, *, seed1: int = 0, seed2: int = 0) -> None:
+    def __init__(
+        self, size: int, num_hashes: int, *, seed1: int = 0, seed2: int = 0
+    ) -> None:
         """Initialize a Bloom filter.
-        
+
         Args:
             size: Number of bits in the filter.
             num_hashes: Number of hash functions to use.
             seed1: Seed for MurmurHash3 (default 0).
             seed2: Seed for xxHash64 (default 0).
-            
+
         Raises:
             ValueError: If size or num_hashes is not positive.
         """
@@ -63,7 +66,7 @@ class BloomFilter:
         data = item.encode("utf-8")
         h1 = mmh3.hash(data, self.seed1, signed=False)
         h2 = xxhash.xxh64(data, seed=self.seed2).intdigest() % self.size
-        
+
         # Ensure h2 != 0 to avoid infinite loop in arithmetic progression
         if h2 == 0:
             h2 = 1
