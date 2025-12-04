@@ -1,36 +1,26 @@
 # Optimized Bloom Filter
 
-This repo contains a two Bloom filter implementations in Python - standard and optimized.  
+This repo contains a two Bloom filter implementations in Python as well as C - a standardized bloom filter and an optimized lightweight bloom filter.  
 We compare both implementations via test suite that tests membership & empirical false-positive rates, as well as real-time performance like throughput and time taken for operations.  
-For testing purposes we use the Brown corpus dataset.  
+For testing purposes we use a synthetic dataset of UUIDs.   
 
 ## Key points THIS SECTION WIP
-- Bloom filter implemented in `bf_std/bloom_filter.py` using MurmurHash3 (`mmh3`) and xxHash64 (`xxhash`).
-- Hashing uses the Kirsch–Mitzenmacher double-hashing technique to derive k=7 hash values from two base hashes.
-- Deterministic 80/20 train/held-out split of the Brown corpus unique tokens is used for reproducible evaluation.
-- The consolidated test suite is `test_suite.py`. It sizes the filter to 10× the training-set size by default.
+- WIP
 
-What the test suite does
-- Loads normalized unique tokens from `dataset/brown.csv`.
-- Sorts tokens deterministically, splits 80% train / 20% test.
-- Builds a Bloom filter with size = 10 × len(train) and k = 7.
-- Verifies all training items are present, measures empirical false-positive rate on the held-out test set, and reports simple collision statistics and memory usage.
-
-## Getting Started
-Quick start (Windows PowerShell)
+## Python implementation (cross-platform)
 1. Create and activate a virtual environment and install dependencies (scripts are in `setup_venv_scripts/`):
 
-```bash
-cd setup_venv_scripts
-./setup_venv.ps1
-# For Linux: ./setup_venv.sh
-# For macOS: ./setup_venv.zsh
+```bash  
+# From project root
+.\setup_venv_scripts\setup_venv.ps1 # For Windows
+./setup_venv_scripts/setup_venv.sh # For Linux
+./setup_venv_scripts/setup_venv.zsh # For macOS
 ```
 
-2. Run the consolidated test suite:
+2. Run the python test suite:
 
 ```bash
-# From project root
+cd python_impl
 python -m test_suite
 ```
 
