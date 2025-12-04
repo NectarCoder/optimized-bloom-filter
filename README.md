@@ -35,7 +35,10 @@ python -m test_suite
 ```
 
 ## C implementation (UNIX)
-If you want to build and run the C benchmark on a UNIX-like system, you need a POSIX shell, `gcc`, and `make` installed.
+If you want to build and run the C benchmark on a UNIX-like system, you need a POSIX shell, `gcc`, and `make` installed.  
+
+> [!IMPORTANT]  
+> Ensure you run `git submodule init` and `git submodule update` before building to pull the C implementations for murmurhash and xxHash. 
 
 Build and run using the Makefile:
 ```bash
