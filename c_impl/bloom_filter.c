@@ -1,5 +1,6 @@
 #include "bloom_filter.h"
-#include "hash_utils.h"
+#include "murmurhash.c/murmurhash.h"
+#include "xxHash/xxhash.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -50,8 +51,8 @@ void bloom_add(BloomFilter *filter, const char *item) {
 
     const uint8_t *data = (const uint8_t *)item;
     size_t len = strlen(item);
-    uint32_t h1 = murmur3_32(data, len, filter->seed1);
-    uint64_t h2 = xxhash64(data, len, filter->seed2) % filter->size_bits;
+    uint32_t h1 = murmurhash((const char *)data, (uint32_t)len, filter->seed1);
+    uint64_t h2 = XXH64(data, len, filter->seed2) % filter->size_bits;
     if (h2 == 0) {
         h2 = 1;
     }
@@ -69,8 +70,8 @@ bool bloom_contains(const BloomFilter *filter, const char *item) {
 
     const uint8_t *data = (const uint8_t *)item;
     size_t len = strlen(item);
-    uint32_t h1 = murmur3_32(data, len, filter->seed1);
-    uint64_t h2 = xxhash64(data, len, filter->seed2) % filter->size_bits;
+    uint32_t h1 = murmurhash((const char *)data, (uint32_t)len, filter->seed1);
+    uint64_t h2 = XXH64(data, len, filter->seed2) % filter->size_bits;
     if (h2 == 0) {
         h2 = 1;
     }

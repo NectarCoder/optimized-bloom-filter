@@ -1,5 +1,5 @@
 #include "lightweight_bloom_filter.h"
-#include "hash_utils.h"
+#include "xxHash/xxhash.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +56,7 @@ void lbf_add(LightweightBloomFilter *filter, const char *item) {
     }
 
     size_t len = strlen(item);
-    uint64_t digest = xxhash64((const uint8_t *)item, len, filter->seed);
+    uint64_t digest = XXH64(item, len, filter->seed);
     size_t block_index = block_index_from_hash(digest, filter->block_bits, filter->word_mask);
     uint64_t state = digest;
     uint64_t word = filter->bit_array[block_index];
@@ -75,7 +75,7 @@ bool lbf_contains(const LightweightBloomFilter *filter, const char *item) {
     }
 
     size_t len = strlen(item);
-    uint64_t digest = xxhash64((const uint8_t *)item, len, filter->seed);
+    uint64_t digest = XXH64(item, len, filter->seed);
     size_t block_index = block_index_from_hash(digest, filter->block_bits, filter->word_mask);
     uint64_t state = digest;
     uint64_t word = filter->bit_array[block_index];

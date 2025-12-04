@@ -2,7 +2,8 @@ CC := gcc
 CFLAGS := -O3 -Wall -Wextra -std=c11
 LDFLAGS :=
 
-SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c hash_utils.c
+SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c \
+	murmurhash.c/murmurhash.c xxHash/xxhash.c
 OBJS := $(SRCS:.c=.o)
 TARGET := bloom_bench.out
 

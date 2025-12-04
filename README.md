@@ -49,7 +49,7 @@ make
 
 Or compile in a single command (optimized):
 ```bash
-gcc -O3 test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c hash_utils.c -o bloom_bench.out
+gcc -O3 test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c -o bloom_bench.out
 ./bloom_bench.out
 ```
 
