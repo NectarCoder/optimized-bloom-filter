@@ -31,5 +31,3 @@ help:
 	@echo "  all (default) - build $(TARGET)"
 	@echo "  run           - build and run $(TARGET)"
 	@echo "  clean         - remove built files"
-
-## End of Makefile
