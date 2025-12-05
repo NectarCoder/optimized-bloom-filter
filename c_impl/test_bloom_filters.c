@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include <uuid/uuid.h>
 
 #ifdef _WIN32
@@ -31,15 +32,19 @@ typedef struct
     size_t query_count;
     double query_time;
     double query_ops_per_sec;
+    double false_positive_rate;
+    double collision_rate;
+    size_t filter_bytes;
+    double filter_mb;
 } PerfMetrics;
 
 static char **generate_dataset(size_t n);
 static void free_dataset(char **data, size_t n);
 static void membership_test(const char *label, const void *filter, contains_fn contains,
                             char **train, size_t train_len);
-static void false_positive_test(const char *label, const void *filter, contains_fn contains,
+static double false_positive_test(const char *label, const void *filter, contains_fn contains,
                                 char **train, size_t train_len, char **test, size_t test_len);
-static void collision_test(const char *label, const void *filter, contains_fn contains,
+static double collision_test(const char *label, const void *filter, contains_fn contains,
                            char **test, size_t test_len);
 static void show_properties_standard(const BloomFilter *filter, size_t inserted);
 static void show_properties_lightweight(const LightweightBloomFilter *filter, size_t inserted);
@@ -98,10 +103,14 @@ int main(void)
     printf("============================================================\n\n");
 
     membership_test("STANDARD", &std_filter, bloom_contains_adapter, train, train_len);
-    false_positive_test("STANDARD", &std_filter, bloom_contains_adapter, train, train_len, test, test_len);
-    collision_test("STANDARD", &std_filter, bloom_contains_adapter, test, test_len);
+    double std_fpr = false_positive_test("STANDARD", &std_filter, bloom_contains_adapter, train, train_len, test, test_len);
+    double std_collision_rate = collision_test("STANDARD", &std_filter, bloom_contains_adapter, test, test_len);
     show_properties_standard(&std_filter, train_len);
     PerfMetrics std_metrics = benchmark_bloom_filter(train, train_len, test, test_len, filter_bits);
+    std_metrics.false_positive_rate = std_fpr;
+    std_metrics.collision_rate = std_collision_rate;
+    std_metrics.filter_bytes = std_filter.byte_length;
+    std_metrics.filter_mb = (double)std_filter.byte_length / (1024.0 * 1024.0);
 
     LightweightBloomFilter light_filter;
     if (!lbf_init(&light_filter, filter_bits, NUM_HASHES, 0u))
@@ -121,10 +130,15 @@ int main(void)
     printf("============================================================\n\n");
 
     membership_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, train, train_len);
-    false_positive_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, train, train_len, test, test_len);
-    collision_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, test, test_len);
+    double light_fpr = false_positive_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, train, train_len, test, test_len);
+    double light_collision_rate = collision_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, test, test_len);
     show_properties_lightweight(&light_filter, train_len);
     PerfMetrics light_metrics = benchmark_lightweight_filter(train, train_len, test, test_len, filter_bits);
+    light_metrics.false_positive_rate = light_fpr;
+    light_metrics.collision_rate = light_collision_rate;
+    const size_t light_bytes = light_filter.word_count * sizeof(uint64_t);
+    light_metrics.filter_bytes = light_bytes;
+    light_metrics.filter_mb = (double)light_bytes / (1024.0 * 1024.0);
 
     printf("============================================================\n");
     printf("COMPARISON: Performance Summary\n");
@@ -195,7 +209,7 @@ static void membership_test(const char *label, const void *filter, contains_fn c
     printf("  Missing after insertion: %zu (expected 0)\n\n", missing);
 }
 
-static void false_positive_test(const char *label, const void *filter, contains_fn contains,
+static double false_positive_test(const char *label, const void *filter, contains_fn contains,
                                 char **train, size_t train_len, char **test, size_t test_len)
 {
     (void)train;
@@ -213,9 +227,10 @@ static void false_positive_test(const char *label, const void *filter, contains_
     printf("  Held-out words: %zu\n", test_len);
     printf("  False positives: %zu\n", false_positives);
     printf("  Empirical FPR: %.6f (%.4f%%)\n\n", fpr, fpr * 100.0);
+    return fpr;
 }
 
-static void collision_test(const char *label, const void *filter, contains_fn contains,
+static double collision_test(const char *label, const void *filter, contains_fn contains,
                            char **test, size_t test_len)
 {
     const size_t sample = test_len < 500u ? test_len : 500u;
@@ -259,6 +274,7 @@ static void collision_test(const char *label, const void *filter, contains_fn co
     printf("  Variants tested: %zu\n", variants);
     printf("  False positives from variants: %zu\n", false_positives);
     printf("  Collision rate: %.6f (%.4f%%)\n\n", rate, rate * 100.0);
+    return rate;
 }
 
 static void show_properties_standard(const BloomFilter *filter, size_t inserted)
@@ -393,15 +409,75 @@ static void compare_metrics(const PerfMetrics *std_metrics, const PerfMetrics *l
         {"Query Time (s)", std_metrics->query_time, light_metrics->query_time},
         {"Insert Count", (double)std_metrics->insert_count, (double)light_metrics->insert_count},
         {"Query Count", (double)std_metrics->query_count, (double)light_metrics->query_count},
+        {"Filter size (bytes)", (double)std_metrics->filter_bytes, (double)light_metrics->filter_bytes},
+        {"Filter size (MB)", std_metrics->filter_mb, light_metrics->filter_mb},
+        {"False Positive Rate (%)", std_metrics->false_positive_rate * 100.0, light_metrics->false_positive_rate * 100.0},
+        {"Collision Rate (%)", std_metrics->collision_rate * 100.0, light_metrics->collision_rate * 100.0},
     };
-
     for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
     {
-        double diff = (rows[i].std_value != 0.0)
-                          ? ((rows[i].light_value - rows[i].std_value) / rows[i].std_value) * 100.0
-                          : 0.0;
-        printf("%-44s%14.2f%18.2f%14.2f%%\n",
-               rows[i].name, rows[i].std_value, rows[i].light_value, diff);
+        double stdv = rows[i].std_value;
+        double lightv = rows[i].light_value;
+        double diff = 0.0;
+        bool div_by_zero = false;
+        if (fabs(stdv) < 1e-12)
+        {
+            if (fabs(lightv) < 1e-12)
+            {
+                diff = 0.0;
+            }
+            else
+            {
+                div_by_zero = true;
+            }
+        }
+        else
+        {
+            diff = ((lightv - stdv) / stdv) * 100.0;
+        }
+
+        char diff_s[32];
+        if (div_by_zero)
+        {
+            snprintf(diff_s, sizeof(diff_s), "+Inf%%");
+        }
+        else if (fabs(diff) < 1e-9)
+        {
+            snprintf(diff_s, sizeof(diff_s), "~0.00%%");
+        }
+        else if (diff > 0.0)
+        {
+            snprintf(diff_s, sizeof(diff_s), "+%.2f%%", diff);
+        }
+        else
+        {
+            snprintf(diff_s, sizeof(diff_s), "%.2f%%", diff);
+        }
+
+        /* Print values with context-specific formatting */
+        if (strstr(rows[i].name, "Rate") != NULL)
+        {
+            /* percentage rate format: numeric widths minus 1 to accommodate trailing %% */
+            printf("%-44s%13.6f%%%17.6f%%%14s\n",
+                   rows[i].name, stdv, lightv, diff_s);
+        }
+        else if (strstr(rows[i].name, "Filter size (MB)") != NULL)
+        {
+            /* MB with 2 decimals */
+            printf("%-44s%14.2f%18.2f%14s\n",
+                   rows[i].name, stdv, lightv, diff_s);
+        }
+        else if (strstr(rows[i].name, "Filter size (bytes)") != NULL)
+        {
+            /* bytes as integer */
+            printf("%-44s%14.0f%18.0f%14s\n",
+                   rows[i].name, stdv, lightv, diff_s);
+        }
+        else
+        {
+            printf("%-44s%14.2f%18.2f%14s\n",
+                   rows[i].name, stdv, lightv, diff_s);
+        }
     }
     printf("\n");
 }
