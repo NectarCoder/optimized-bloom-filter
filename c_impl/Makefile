@@ -1,6 +1,6 @@
 CC := gcc
 CFLAGS := -O3 -Wall -Wextra -std=c11
-LDFLAGS :=
+LDFLAGS := -luuid
 
 SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c \
 	murmurhash.c/murmurhash.c xxHash/xxhash.c
@@ -12,7 +12,7 @@ TARGET := bloom_bench.out
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@

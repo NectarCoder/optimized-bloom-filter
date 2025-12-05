@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <uuid/uuid.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -18,7 +19,7 @@
 
 #define NUM_HASHES 7u
 #define DATASET_SIZE 10000000u
-#define TARGET_QUERIES 1000000u
+#define TRAIN_PERCENT 80u
 
 typedef bool (*contains_fn)(const void *filter, const char *item);
 
@@ -61,7 +62,7 @@ static bool lbf_contains_adapter(const void *filter, const char *item)
 
 int main(void)
 {
-    printf("Generating %u synthetic items...\n", DATASET_SIZE);
+    printf("Generating %zu synthetic items...\n", (size_t)DATASET_SIZE);
     char **dataset = generate_dataset(DATASET_SIZE);
     if (!dataset)
     {
@@ -69,14 +70,16 @@ int main(void)
         return EXIT_FAILURE;
     }
 
-    const size_t train_len = (size_t)(DATASET_SIZE * 0.8);
+    const size_t train_len = (size_t)((double)DATASET_SIZE * (TRAIN_PERCENT / 100.0));
     const size_t test_len = DATASET_SIZE - train_len;
+    const size_t train_pct = (size_t)TRAIN_PERCENT;
+    const size_t test_pct = 100u - train_pct;
     char **train = dataset;
     char **test = dataset + train_len;
 
     const size_t filter_bits = train_len * 10u;
 
-    printf("Full dataset unique tokens: %u\n\n", DATASET_SIZE);
+    printf("Full dataset unique tokens: %zu\n\n", (size_t)DATASET_SIZE);
 
     BloomFilter std_filter;
     if (!bloom_init(&std_filter, filter_bits, NUM_HASHES, 0u, 0u))
@@ -91,7 +94,7 @@ int main(void)
     }
 
     printf("============================================================\n");
-    printf("Running STANDARD Bloom Filter Test Suite (80/20 split)\n");
+    printf("Running STANDARD Bloom Filter Test Suite (%zu/%zu split)\n", train_pct, test_pct);
     printf("============================================================\n\n");
 
     membership_test("STANDARD", &std_filter, bloom_contains_adapter, train, train_len);
@@ -114,7 +117,7 @@ int main(void)
     }
 
     printf("\n============================================================\n");
-    printf("Running LIGHTWEIGHT Bloom Filter Test Suite (80/20 split)\n");
+    printf("Running LIGHTWEIGHT Bloom Filter Test Suite (%zu/%zu split)\n", train_pct, test_pct);
     printf("============================================================\n\n");
 
     membership_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, train, train_len);
@@ -144,7 +147,8 @@ static char **generate_dataset(size_t n)
     }
     for (size_t i = 0; i < n; ++i)
     {
-        data[i] = (char *)malloc(32u);
+        /* UUIDs require 36 characters plus null-terminator */
+        data[i] = (char *)malloc(37u);
         if (!data[i])
         {
             for (size_t j = 0; j < i; ++j)
@@ -154,7 +158,10 @@ static char **generate_dataset(size_t n)
             free(data);
             return NULL;
         }
-        snprintf(data[i], 32u, "token-%07" PRIu64, (uint64_t)i);
+        /* Generate a UUID string for each dataset item */
+        uuid_t uuid;
+        uuid_generate(uuid);
+        uuid_unparse_lower(uuid, data[i]);
     }
     return data;
 }
@@ -300,11 +307,11 @@ static PerfMetrics benchmark_bloom_filter(char **train, size_t train_len,
                                      ? (double)metrics.insert_count / metrics.insert_time
                                      : 0.0;
 
-    const size_t query_count = TARGET_QUERIES;
+    const size_t query_count = test_len;
     start = now_seconds();
     for (size_t i = 0; i < query_count; ++i)
     {
-        const char *token = test[i % test_len];
+        const char *token = test[i];
         (void)bloom_contains(&filter, token);
     }
     end = now_seconds();
@@ -346,11 +353,11 @@ static PerfMetrics benchmark_lightweight_filter(char **train, size_t train_len,
                                      ? (double)metrics.insert_count / metrics.insert_time
                                      : 0.0;
 
-    const size_t query_count = TARGET_QUERIES;
+    const size_t query_count = test_len;
     start = now_seconds();
     for (size_t i = 0; i < query_count; ++i)
     {
-        const char *token = test[i % test_len];
+        const char *token = test[i];
         (void)lbf_contains(&filter, token);
     }
     end = now_seconds();
@@ -371,8 +378,8 @@ static PerfMetrics benchmark_lightweight_filter(char **train, size_t train_len,
 
 static void compare_metrics(const PerfMetrics *std_metrics, const PerfMetrics *light_metrics)
 {
-    printf("Metric                                        Standard       Lightweight      Diff (%)\n");
-    printf("--------------------------------------------------------------------------------------\n");
+    printf("Metric                                             Standard       Lightweight      Diff (%%)\n");
+    printf("--------------------------------------------------------------------------------------------\n");
 
     const struct
     {
