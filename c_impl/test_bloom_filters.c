@@ -14,10 +14,11 @@
 #include <time.h>
 #include <uuid/uuid.h>
 
-
+// Function pointer for contains adapters: takes a filter type and a string, returns true if present
 typedef bool (*contains_fn)(const void *filter, const char *item);
 
-typedef struct
+// PerfMetrics - structure to hold performance metrics for benchmarking
+typedef struct PerfMetrics
 {
     size_t insert_count;
     double insert_time;
@@ -31,64 +32,71 @@ typedef struct
     double filter_mb;
 } PerfMetrics;
 
-typedef enum
+// Metric enumeration for output format usage
+typedef enum MetricStyle
 {
     METRIC_STYLE_DEFAULT,
     METRIC_STYLE_BYTES,
     METRIC_STYLE_MB,
     METRIC_STYLE_PERCENT,
+    METRIC_STYLE_TIME,
 } MetricStyle;
 
+/*
+* Function prototypes/declarations
+*/
 static char **generate_dataset(size_t n);
 static void free_dataset(char **data, size_t n);
-static void membership_test(const char *label, const void *filter, contains_fn contains,
-                            char *const train[], size_t train_len);
-static double false_positive_test(const char *label, const void *filter, contains_fn contains,
-                                char *const test[], size_t test_len);
-static double collision_test(const char *label, const void *filter, contains_fn contains,
-                           char *const test[], size_t test_len);
-static void print_filter_properties(const char *label, size_t size_bits, size_t byte_length,
-                                    uint32_t num_hashes, size_t inserted);
-static PerfMetrics benchmark_bloom_filter(char *const train[], size_t train_len,
-                                          char *const test[], size_t test_len, size_t filter_bits);
-static PerfMetrics benchmark_lightweight_filter(char *const train[], size_t train_len,
-                                                char *const test[], size_t test_len, size_t filter_bits);
+static void membership_test(const char *label, const void *filter, contains_fn contains, char *const train[], size_t train_len);
+static double false_positive_test(const char *label, const void *filter, contains_fn contains, char *const test[], size_t test_len);
+static double collision_test(const char *label, const void *filter, contains_fn contains, char *const test[], size_t test_len);
+static void print_filter_properties(const char *label, size_t size_bits, size_t byte_length, uint32_t num_hashes, size_t inserted);
+static PerfMetrics benchmark_bloom_filter(char *const train[], size_t train_len, char *const test[], size_t test_len, size_t filter_bits);
+static PerfMetrics benchmark_lightweight_filter(char *const train[], size_t train_len, char *const test[], size_t test_len, size_t filter_bits);
 static void compare_metrics(const PerfMetrics *std_metrics, const PerfMetrics *light_metrics);
 static double now_seconds(void);
 static size_t copy_string_with_limit(char *dest, size_t dest_size, const char *source);
 static bool append_variant_suffix(char *buffer, size_t buffer_size, const char *source, char suffix);
 static bool replace_variant_last_char(char *buffer, size_t buffer_size, const char *source, char replacement);
 static bool prefix_variant(char *buffer, size_t buffer_size, char prefix, const char *source);
-static void record_variant(const void *filter, contains_fn contains, const char *variant,
-                           size_t *variants, size_t *false_positives);
+static void record_variant(const void *filter, contains_fn contains, const char *variant, size_t *variants, size_t *false_positives);
 static double time_inserts(void *filter, void (*add)(void *, const char *), char *const items[], size_t count);
 static double time_queries(const void *filter, contains_fn contains, char *const items[], size_t count);
 static void bloom_add_wrapper(void *filter, const char *item);
 static void lbf_add_wrapper(void *filter, const char *item);
-static void print_metric_row(const char *name, double std_value, double light_value,
-                             const char *diff_text, MetricStyle style);
-static const uint32_t kNumHashes = 7u;
-static const size_t kDatasetSize = 10000000u;
-static const uint32_t kTrainPercent = 80u;
-static const size_t kCollisionSampleLimit = 500u;
-static const size_t kUuidStringLength = 37u;
-static const size_t kVariantBufferSize = 64u;
-static const double kBytesPerMegabyte = 1024.0 * 1024.0;
-static const size_t kBitsPerItem = 10u;
+static void print_metric_row(const char *name, double std_value, double light_value, const char *diff_text, MetricStyle style);
+static char *format_with_commas(size_t num);
 
+/*
+* Constants
+*/
+static const uint32_t kNumHashes = 7u; // In case of standard BF, expand 2 hashes into 7 via double hashing. In case of lightweight BF, just use flip/check 7 bits in a block
+static const size_t kDatasetSize = 100000u; // CHANGE SIZE OF DATASET HERE!!
+static const uint32_t kTrainPercent = 80u; // Percentage of dataset to use for training (insertion). Remaining percentage used for testing (query).
+static const size_t kCollisionSampleLimit = 500u; // Limit on number of test items to use for collision analysis
+static const size_t kUuidStringLength = 37u; // 36 chars + null terminator (UUID v4)
+static const size_t kVariantBufferSize = 64u; 
+static const double kBytesPerMegabyte = 1024.0 * 1024.0; // Conversion factor from bytes to megabytes
+static const size_t kBitsPerItem = 10u; // Target bits per item in the Bloom filter (affects size of filter)
+
+// Standard Bloom filter contains adapter
 static bool bloom_contains_adapter(const void *filter, const char *item)
 {
     return bloom_contains((const BloomFilter *)filter, item);
 }
 
+// Lightweight Bloom filter contains adapter
 static bool lbf_contains_adapter(const void *filter, const char *item)
 {
     return lbf_contains((const LightweightBloomFilter *)filter, item);
 }
 
+/*
+* Main function - run the benchmarks
+*/
 int main(void)
 {
-    printf("Generating %zu synthetic items...\n", kDatasetSize);
+    printf("Generating %s synthetic items...\n", format_with_commas(kDatasetSize));
     char **dataset = generate_dataset(kDatasetSize);
     if (!dataset)
     {
@@ -105,7 +113,7 @@ int main(void)
 
     const size_t filter_bits = train_len * kBitsPerItem;
 
-    printf("Full dataset unique tokens: %zu\n\n", kDatasetSize);
+    printf("Full dataset unique UUIDs: %s\n\n", format_with_commas(kDatasetSize));
 
     BloomFilter std_filter;
     if (!bloom_init(&std_filter, filter_bits, kNumHashes, 0u, 0u))
@@ -119,9 +127,9 @@ int main(void)
         bloom_add(&std_filter, train[i]);
     }
 
-    printf("============================================================\n");
-    printf("Running STANDARD Bloom Filter Test Suite (%zu/%zu split)\n", train_pct, test_pct);
-    printf("============================================================\n\n");
+    printf("================================================================\n");
+    printf("Running STANDARD Bloom Filter Benchmarks (%zu/%zu split)\n", train_pct, test_pct);
+    printf("================================================================\n\n");
 
     membership_test("STANDARD", &std_filter, bloom_contains_adapter, train, train_len);
     double std_fpr = false_positive_test("STANDARD", &std_filter, bloom_contains_adapter, test, test_len);
@@ -147,9 +155,9 @@ int main(void)
         lbf_add(&light_filter, train[i]);
     }
 
-    printf("\n============================================================\n");
-    printf("Running LIGHTWEIGHT Bloom Filter Test Suite (%zu/%zu split)\n", train_pct, test_pct);
-    printf("============================================================\n\n");
+    printf("\n================================================================\n");
+    printf("Running LIGHTWEIGHT Bloom Filter Benchmarks (%zu/%zu split)\n", train_pct, test_pct);
+    printf("================================================================\n\n");
 
     membership_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, train, train_len);
     double light_fpr = false_positive_test("LIGHTWEIGHT", &light_filter, lbf_contains_adapter, test, test_len);
@@ -163,9 +171,9 @@ int main(void)
     light_metrics.filter_bytes = light_bytes;
     light_metrics.filter_mb = (double)light_bytes / kBytesPerMegabyte;
 
-    printf("============================================================\n");
-    printf("COMPARISON: Performance Summary\n");
-    printf("============================================================\n");
+    printf("===========================================================================\n");
+    printf("COMPARISON: Performance Summary (Total Dataset Size: %s) UUIDs\n", format_with_commas(kDatasetSize));
+    printf("===========================================================================\n");
     compare_metrics(&std_metrics, &light_metrics);
 
     bloom_free(&std_filter);
@@ -318,9 +326,9 @@ static PerfMetrics benchmark_bloom_filter(char *const train[], size_t train_len,
 
     bloom_free(&filter);
     printf("TEST E (STANDARD): Performance Benchmarking\n");
-    printf("  - Inserted %zu items in %.4f sec (%.0f ops/sec)\n",
+    printf("  - Inserted %zu items in %.5f sec (%.0f ops/sec)\n",
            metrics.insert_count, metrics.insert_time, metrics.insert_ops_per_sec);
-    printf("  - Performed %zu queries in %.4f sec (%.0f ops/sec)\n\n",
+    printf("  - Performed %zu queries in %.5f sec (%.0f ops/sec)\n\n",
            metrics.query_count, metrics.query_time, metrics.query_ops_per_sec);
     return metrics;
 }
@@ -350,9 +358,9 @@ static PerfMetrics benchmark_lightweight_filter(char *const train[], size_t trai
 
     lbf_free(&filter);
     printf("TEST E (LIGHTWEIGHT): Performance Benchmarking\n");
-    printf("  - Inserted %zu items in %.4f sec (%.0f ops/sec)\n",
+    printf("  - Inserted %zu items in %.5f sec (%.0f ops/sec)\n",
            metrics.insert_count, metrics.insert_time, metrics.insert_ops_per_sec);
-    printf("  - Performed %zu queries in %.4f sec (%.0f ops/sec)\n\n",
+    printf("  - Performed %zu queries in %.5f sec (%.0f ops/sec)\n\n",
            metrics.query_count, metrics.query_time, metrics.query_ops_per_sec);
     return metrics;
 }
@@ -370,9 +378,9 @@ static void compare_metrics(const PerfMetrics *std_metrics, const PerfMetrics *l
         MetricStyle style;
     } rows[] = {
         {"Insertion Throughput (ops/sec)", std_metrics->insert_ops_per_sec, light_metrics->insert_ops_per_sec, METRIC_STYLE_DEFAULT},
-        {"Insertion Time (s)", std_metrics->insert_time, light_metrics->insert_time, METRIC_STYLE_DEFAULT},
+        {"Insertion Time (sec)", std_metrics->insert_time, light_metrics->insert_time, METRIC_STYLE_TIME},
         {"Query Throughput (ops/sec)", std_metrics->query_ops_per_sec, light_metrics->query_ops_per_sec, METRIC_STYLE_DEFAULT},
-        {"Query Time (s)", std_metrics->query_time, light_metrics->query_time, METRIC_STYLE_DEFAULT},
+        {"Query Time (sec)", std_metrics->query_time, light_metrics->query_time, METRIC_STYLE_TIME},
         {"Insert Count", (double)std_metrics->insert_count, (double)light_metrics->insert_count, METRIC_STYLE_DEFAULT},
         {"Query Count", (double)std_metrics->query_count, (double)light_metrics->query_count, METRIC_STYLE_DEFAULT},
         {"Filter size (bytes)", (double)std_metrics->filter_bytes, (double)light_metrics->filter_bytes, METRIC_STYLE_BYTES},
@@ -525,6 +533,9 @@ static void print_metric_row(const char *name, double std_value, double light_va
     case METRIC_STYLE_BYTES:
         printf("%-44s%14.0f%18.0f%14s\n", name, std_value, light_value, diff_text);
         break;
+    case METRIC_STYLE_TIME:
+        printf("%-44s%14.5f%18.5f%14s\n", name, std_value, light_value, diff_text);
+        break;
     default:
         printf("%-44s%14.2f%18.2f%14s\n", name, std_value, light_value, diff_text);
         break;
@@ -536,4 +547,25 @@ static double now_seconds(void)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static char *format_with_commas(size_t num)
+{
+    static char buffer[32];
+    char temp[32];
+    int len = sprintf(temp, "%zu", num);
+    int comma_count = (len - 1) / 3;
+    int new_len = len + comma_count;
+    buffer[new_len] = '\0';
+    int j = new_len - 1;
+    int count = 0;
+    for (int i = len - 1; i >= 0; --i)
+    {
+        buffer[j--] = temp[i];
+        if (++count % 3 == 0 && i > 0)
+        {
+            buffer[j--] = ',';
+        }
+    }
+    return buffer;
 }

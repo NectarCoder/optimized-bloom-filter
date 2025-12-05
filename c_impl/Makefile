@@ -5,7 +5,7 @@ LDFLAGS := -luuid
 SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c \
 	murmurhash.c/murmurhash.c xxHash/xxhash.c
 OBJS := $(SRCS:.c=.o)
-TARGET := bloom_bench.out
+TARGET := bloom_bench
 
 .PHONY: all clean run help
 
@@ -30,4 +30,4 @@ help:
 	@echo "Targets:" 
 	@echo "  all (default) - build $(TARGET)"
 	@echo "  run           - build and run $(TARGET)"
-	@echo "  clean         - remove built files"
+	@echo "  clean         - remove the built files"
