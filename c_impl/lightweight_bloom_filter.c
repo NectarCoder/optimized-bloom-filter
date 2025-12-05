@@ -9,6 +9,8 @@
 static size_t next_power_of_two(size_t value);
 static size_t block_index_from_hash(uint64_t digest, unsigned block_bits, size_t mask);
 static uint64_t splitmix64_next(uint64_t *state);
+static bool lbf_prepare_block(const LightweightBloomFilter *filter, const char *item,
+                              uint64_t *digest, size_t *block_index);
 
 bool lbf_init(LightweightBloomFilter *filter, size_t size_bits, uint32_t num_hashes,
               uint64_t seed)
@@ -18,12 +20,27 @@ bool lbf_init(LightweightBloomFilter *filter, size_t size_bits, uint32_t num_has
         return false;
     }
 
-    size_t requested_words = (size_bits + 63u) / 64u;
-    if (requested_words == 0)
+    if (size_bits > (SIZE_MAX - 63u))
     {
-        requested_words = 1;
+        return false;
     }
-    size_t word_count = next_power_of_two(requested_words);
+
+    size_t requested_words = (size_bits + 63u) / 64u;
+    if (requested_words == 0u)
+    {
+        requested_words = 1u;
+    }
+
+    const size_t word_count = next_power_of_two(requested_words);
+
+    filter->size_bits = 0u;
+    filter->num_hashes = 0u;
+    filter->seed = 0u;
+    filter->word_count = 0u;
+    filter->word_mask = 0u;
+    filter->block_bits = 0u;
+    filter->bit_array = NULL;
+
     uint64_t *array = (uint64_t *)calloc(word_count, sizeof(uint64_t));
     if (!array)
     {
@@ -54,19 +71,20 @@ void lbf_free(LightweightBloomFilter *filter)
         return;
     }
     free(filter->bit_array);
+    filter->bit_array = NULL;
     memset(filter, 0, sizeof(*filter));
 }
 
 void lbf_add(LightweightBloomFilter *filter, const char *item)
 {
-    if (!filter || !item)
+    uint64_t digest = 0u;
+    size_t block_index = 0u;
+
+    if (!lbf_prepare_block(filter, item, &digest, &block_index))
     {
         return;
     }
 
-    size_t len = strlen(item);
-    uint64_t digest = XXH64(item, len, filter->seed);
-    size_t block_index = block_index_from_hash(digest, filter->block_bits, filter->word_mask);
     uint64_t state = digest;
     uint64_t word = filter->bit_array[block_index];
 
@@ -81,16 +99,16 @@ void lbf_add(LightweightBloomFilter *filter, const char *item)
 
 bool lbf_contains(const LightweightBloomFilter *filter, const char *item)
 {
-    if (!filter || !item)
+    uint64_t digest = 0u;
+    size_t block_index = 0u;
+
+    if (!lbf_prepare_block(filter, item, &digest, &block_index))
     {
         return false;
     }
 
-    size_t len = strlen(item);
-    uint64_t digest = XXH64(item, len, filter->seed);
-    size_t block_index = block_index_from_hash(digest, filter->block_bits, filter->word_mask);
     uint64_t state = digest;
-    uint64_t word = filter->bit_array[block_index];
+    const uint64_t word = filter->bit_array[block_index];
 
     for (uint32_t i = 0; i < filter->num_hashes; ++i)
     {
@@ -142,4 +160,20 @@ static uint64_t splitmix64_next(uint64_t *state)
     x = (x ^ (x >> 27u)) * mul2;
     x ^= x >> 31u;
     return x;
+}
+
+static bool lbf_prepare_block(const LightweightBloomFilter *filter, const char *item,
+                              uint64_t *digest, size_t *block_index)
+{
+    if (!filter || !item || !digest || !block_index || filter->bit_array == NULL || filter->word_count == 0u)
+    {
+        return false;
+    }
+
+    const size_t len = strlen(item);
+    const uint64_t hash = XXH64(item, len, filter->seed);
+
+    *digest = hash;
+    *block_index = block_index_from_hash(hash, filter->block_bits, filter->word_mask);
+    return true;
 }
