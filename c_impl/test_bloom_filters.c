@@ -62,7 +62,7 @@ static bool prefix_variant(char *buffer, size_t buffer_size, char prefix, const 
 static void record_variant(const void *filter, contains_fn contains, const char *variant, size_t *variants, size_t *false_positives);
 static double time_inserts(void *filter, void (*add)(void *, const char *), char *const items[], size_t count);
 static double time_queries(const void *filter, contains_fn contains, char *const items[], size_t count);
-static void bloom_add_wrapper(void *filter, const char *item);
+static void stdbf_add_wrapper(void *filter, const char *item);
 static void lbf_add_wrapper(void *filter, const char *item);
 static void print_metric_row(const char *name, double std_value, double light_value, const char *diff_text, MetricStyle style);
 static char *format_with_commas(size_t num);
@@ -71,7 +71,7 @@ static char *format_with_commas(size_t num);
 * Constants
 */
 static const uint32_t kNumHashes = 7u; // In case of standard BF, expand 2 hashes into 7 via double hashing. In case of lightweight BF, just use flip/check 7 bits in a block
-static const size_t kDatasetSize = 100000u; // CHANGE SIZE OF DATASET HERE!!
+static const size_t kDatasetSize = 1000000000u; // CHANGE SIZE OF DATASET HERE!!
 static const uint32_t kTrainPercent = 80u; // Percentage of dataset to use for training (insertion). Remaining percentage used for testing (query).
 static const size_t kCollisionSampleLimit = 500u; // Limit on number of test items to use for collision analysis
 static const size_t kUuidStringLength = 37u; // 36 chars + null terminator (UUID v4)
@@ -313,7 +313,7 @@ static PerfMetrics benchmark_bloom_filter(char *const train[], size_t train_len,
     }
 
     metrics.insert_count = train_len;
-    metrics.insert_time = time_inserts(&filter, bloom_add_wrapper, train, train_len);
+    metrics.insert_time = time_inserts(&filter, stdbf_add_wrapper, train, train_len);
     metrics.insert_ops_per_sec = metrics.insert_time > 0.0
                                      ? (double)metrics.insert_count / metrics.insert_time
                                      : 0.0;
@@ -509,7 +509,7 @@ static double time_queries(const void *filter, contains_fn contains, char *const
     return now_seconds() - start;
 }
 
-static void bloom_add_wrapper(void *filter, const char *item)
+static void stdbf_add_wrapper(void *filter, const char *item)
 {
     bloom_add((BloomFilter *)filter, item);
 }
