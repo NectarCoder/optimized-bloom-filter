@@ -71,7 +71,7 @@ static char *format_with_commas(size_t num);
 * Constants
 */
 static const uint32_t kNumHashes = 7u; // In case of standard BF, expand 2 hashes into 7 via double hashing. In case of lightweight BF, just use flip/check 7 bits in a block
-static const size_t kDatasetSize = 1000000000u; // CHANGE SIZE OF DATASET HERE!!
+static const size_t kDatasetSize = 10000u; // CHANGE SIZE OF DATASET HERE!!
 static const uint32_t kTrainPercent = 80u; // Percentage of dataset to use for training (insertion). Remaining percentage used for testing (query).
 static const size_t kCollisionSampleLimit = 500u; // Limit on number of test items to use for collision analysis
 static const size_t kUuidStringLength = 37u; // 36 chars + null terminator (UUID v4)

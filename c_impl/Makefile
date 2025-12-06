@@ -1,9 +1,18 @@
 CC := gcc
 CFLAGS := -O3 -Wall -Wextra -std=c11
 LDFLAGS := -luuid
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+    # MacPorts standard paths
+    CFLAGS += -I/opt/local/include
+
+    # Add library path to LDFLAGS
+    LDFLAGS := -L/opt/local/lib $(LDFLAGS)
+endif
 
 SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c \
-	murmurhash.c/murmurhash.c xxHash/xxhash.c
+    murmurhash.c/murmurhash.c xxHash/xxhash.c
 OBJS := $(SRCS:.c=.o)
 TARGET := bloom_bench
 
