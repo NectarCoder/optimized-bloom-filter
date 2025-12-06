@@ -1,3 +1,8 @@
+/*
+    Standard Bloom filter implementation in C.
+    Uses double hashing with MurmurHash3 and xxHash64.
+*/
+
 #include "bloom_filter.h"
 #include "murmurhash.c/murmurhash.h"
 #include "xxHash/xxhash.h"
@@ -7,19 +12,41 @@
 
 #define BLOOM_MIN_SIZE 1
 
+/*
+    bloom_set_bit - Sets the bit at the specified index in the bit array.
+    param array - Pointer to the bit array.
+    param bit_index - Index of the bit to set.
+*/
 static inline void bloom_set_bit(uint8_t *array, size_t bit_index)
 {
+    // Use bitwise OR to set the specific bit at bit_index
     array[bit_index >> 3] |= (uint8_t)(1u << (bit_index & 7u));
 }
 
+/*
+    bloom_bit_is_set - Checks if the bit at the specified index in the bit array is set.
+    param array - Pointer to the bit array.
+    param bit_index - Index of the bit to check.
+    return - true if the bit is set, false otherwise.
+*/
 static inline bool bloom_bit_is_set(const uint8_t *array, size_t bit_index)
 {
+    // Use bitwise AND to check if the specific bit at bit_index is set 
     return (array[bit_index >> 3] & (uint8_t)(1u << (bit_index & 7u))) != 0;
 }
 
+/*
+    bloom_compute_hashes - Computes the two hash values for double hashing.
+    param filter - Pointer to the BloomFilter structure.
+    param item - The item to hash.
+    param h1 - Pointer to store the first hash value (MurmurHash3).
+    param h2 - Pointer to store the second hash value (xxHash64).
+    return - true on success, false on failure.
+*/
 static bool bloom_compute_hashes(const BloomFilter *filter, const char *item,
                                  uint32_t *h1, uint64_t *h2)
 {
+    // Validate inputs
     if (!filter || !item || !h1 || !h2 || filter->size_bits == 0u || filter->bit_array == NULL)
     {
         return false;
@@ -39,6 +66,15 @@ static bool bloom_compute_hashes(const BloomFilter *filter, const char *item,
     return true;
 }
 
+/*
+    bloom_init - Initializes the Bloom filter.
+    param filter - Pointer to the BloomFilter structure to initialize.
+    param size_bits - Size of the bit array in bits.
+    param num_hashes - Number of hash functions to use.
+    param seed1 - Seed for the first hash function (MurmurHash3).
+    param seed2 - Seed for the second hash function (xxHash64).
+    return - true on success, false on failure.
+*/
 bool bloom_init(BloomFilter *filter, size_t size_bits, uint32_t num_hashes,
                 uint32_t seed1, uint64_t seed2)
 {
@@ -66,6 +102,7 @@ bool bloom_init(BloomFilter *filter, size_t size_bits, uint32_t num_hashes,
         return false;
     }
 
+    // Set the filter parameters
     filter->size_bits = size_bits;
     filter->num_hashes = num_hashes;
     filter->seed1 = seed1;
@@ -75,6 +112,10 @@ bool bloom_init(BloomFilter *filter, size_t size_bits, uint32_t num_hashes,
     return true;
 }
 
+/*
+    bloom_free - Helper function to free the Bloom filter resources.
+    param filter - Pointer to the BloomFilter structure to free.
+*/
 void bloom_free(BloomFilter *filter)
 {
     if (!filter)
@@ -86,6 +127,11 @@ void bloom_free(BloomFilter *filter)
     memset(filter, 0, sizeof(*filter));
 }
 
+/*
+    bloom_add - Adds an item to the Bloom filter.
+    param filter - Pointer to the BloomFilter structure.
+    param item - The item to add.
+*/
 void bloom_add(BloomFilter *filter, const char *item)
 {
     uint32_t h1 = 0u;
@@ -103,6 +149,12 @@ void bloom_add(BloomFilter *filter, const char *item)
     }
 }
 
+/*
+    bloom_contains - Checks if an item is possibly in the Bloom filter.
+    param filter - Pointer to the BloomFilter structure.
+    param item - The item to check.
+    return - true if the item is possibly in the filter, false if definitely not.
+*/
 bool bloom_contains(const BloomFilter *filter, const char *item)
 {
     uint32_t h1 = 0u;
@@ -113,8 +165,10 @@ bool bloom_contains(const BloomFilter *filter, const char *item)
         return false;
     }
 
+    // Repeat as many times defined by num_hashes (theoretically, the 'k' value)
     for (uint32_t i = 0; i < filter->num_hashes; ++i)
     {
+        // Calculate the bit index using double hashing
         size_t bit_index = (h1 + i * h2) % filter->size_bits;
         if (!bloom_bit_is_set(filter->bit_array, bit_index))
         {

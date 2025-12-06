@@ -9,6 +9,7 @@
 extern "C" {
 #endif
 
+    // (standard) BloomFilter structure definition
     typedef struct
     {
         size_t size_bits;
