@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BLOOM_MIN_SIZE 1
+#define MIN_SIZE 1
 
 /*
     bloom_set_bit - Sets the bit at the specified index in the bit array.
@@ -78,7 +78,7 @@ static bool bloom_compute_hashes(const BloomFilter *filter, const char *item,
 bool bloom_init(BloomFilter *filter, size_t size_bits, uint32_t num_hashes,
                 uint32_t seed1, uint64_t seed2)
 {
-    if (!filter || size_bits < BLOOM_MIN_SIZE || num_hashes == 0)
+    if (!filter || size_bits < MIN_SIZE || num_hashes == 0)
     {
         return false;
     }

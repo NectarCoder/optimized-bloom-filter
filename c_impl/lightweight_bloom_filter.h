@@ -9,6 +9,7 @@
 extern "C" {
 #endif
 
+    // Lightweight Bloom Filter structure definition
     typedef struct
     {
         size_t size_bits;
