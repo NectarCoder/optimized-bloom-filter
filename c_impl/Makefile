@@ -4,11 +4,29 @@ LDFLAGS := -luuid
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
-    # MacPorts standard paths
-    CFLAGS += -I/opt/local/include
+    # MacPorts typically installs to /opt/local
+    ifneq ($(wildcard /opt/local/include),)
+        CFLAGS += -I/opt/local/include
+    endif
+    ifneq ($(wildcard /opt/local/lib),)
+        LDFLAGS := -L/opt/local/lib $(LDFLAGS)
+	endif
 
-    # Add library path to LDFLAGS
-    LDFLAGS := -L/opt/local/lib $(LDFLAGS)
+    # Intel Homebrew typically installs to /usr/local
+    ifneq ($(wildcard /usr/local/include),)
+        CFLAGS += -I/usr/local/include
+    endif
+    ifneq ($(wildcard /usr/local/lib),)
+        LDFLAGS := -L/usr/local/lib $(LDFLAGS)
+    endif
+
+    # Apple Silicon Homebrew installs to /opt/homebrew
+    ifneq ($(wildcard /opt/homebrew/include),)
+        CFLAGS += -I/opt/homebrew/include
+    endif
+    ifneq ($(wildcard /opt/homebrew/lib),)
+        LDFLAGS := -L/opt/homebrew/lib $(LDFLAGS)
+    endif
 endif
 
 SRCS := test_bloom_filters.c bloom_filter.c lightweight_bloom_filter.c \
