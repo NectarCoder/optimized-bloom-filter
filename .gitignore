@@ -4,3 +4,14 @@ venv/
 
 # Python Cache
 __pycache__/
+
+# Other
+.DS_Store
+*.log
+.ini
+
+# C outputs
+*.out
+*.exe
+*.o
+bloom_bench
