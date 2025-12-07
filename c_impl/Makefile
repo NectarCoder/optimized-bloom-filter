@@ -58,3 +58,5 @@ help:
 	@echo "  all (default) - build $(TARGET)"
 	@echo "  run           - build and run $(TARGET)"
 	@echo "  clean         - remove the built files"
+	@echo "  help          - display this help message"
+	
